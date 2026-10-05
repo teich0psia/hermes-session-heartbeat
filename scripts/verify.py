@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix="session-heartbeat-verify-", dir=scratch
     os.environ["HERMES_TEST_PLUGIN"] = str(Path(sys.argv[2] if len(sys.argv) > 2 else REPO / "plugin").resolve())
     class OfflineImportGuard(importlib.abc.MetaPathFinder):
         def find_spec(self, fullname, path=None, target=None):
-            if fullname in {"hermes_bootstrap", "run_agent"}:
+            if fullname in {"hermes_bootstrap", "run_agent", "cli", "tui_gateway.server"}:
                 # Never execute entry-point PM preparation or instantiate a live agent.
                 raise ModuleNotFoundError("Offline probe excludes " + fullname, name=fullname)
     sys.meta_path.insert(0, OfflineImportGuard())
@@ -36,6 +36,9 @@ with tempfile.TemporaryDirectory(prefix="session-heartbeat-verify-", dir=scratch
         raise RuntimeError("Offline probe must not open a bootstrap network connection")
     setattr(bootstrap, "_happy_eyeballs_create_connection", no_network)
     sys.modules["hermes_bootstrap"] = bootstrap
+    import socket
+    socket.create_connection = no_network
+    socket.socket.connect = no_network
     print("HOST", HOST, flush=True)
     print("PLUGIN", os.environ["HERMES_TEST_PLUGIN"], flush=True)
     print("ISOLATED_HOME", os.environ["HERMES_HOME"], flush=True)
@@ -46,6 +49,13 @@ with tempfile.TemporaryDirectory(prefix="session-heartbeat-verify-", dir=scratch
     else:
         import pytest
         result = pytest.main(["-q", "-s", "-p", "no:cacheprovider", "--basetemp", str(root / "pytest"), str(REPO / "tests")])
-        assert sys.modules["hermes_bootstrap"] is bootstrap and "run_agent" not in sys.modules
-        print("OFFLINE_GUARD_READBACK: bootstrap shim retained; no live-agent module loaded", flush=True)
+        assert sys.modules["hermes_bootstrap"] is bootstrap
+        assert not {"run_agent", "cli", "tui_gateway.server"} & set(sys.modules)
+        import json
+        modules = {name: str(Path(sys.modules[name].__file__).resolve()) for name in
+                   ("hermes_cli.heartbeat", "hermes_cli.cli_loops_mixin", "gateway.session_context",
+                    "agent.tool_executor", "model_tools", "tui_gateway.session_notifications")}
+        assert all(Path(path).is_relative_to(HOST) for path in modules.values())
+        print("HOST_MODULES", json.dumps(modules), flush=True)
+        print("OFFLINE_GUARD_READBACK: bootstrap shim retained; no live-agent/CLI/server entrypoint loaded", flush=True)
         raise SystemExit(result)

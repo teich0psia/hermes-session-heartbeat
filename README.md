@@ -2,59 +2,97 @@
 
 English | [日本語](README.ja.md)
 
-A plugin that lets the agent set, inspect, pause, resume, or clear the Session Heartbeat for the current Hermes messaging conversation. For example, you can ask it to check periodically whether CI has finished and clear the heartbeat when it does.
+A model-facing tool for controlling the **current conversation's** native Hermes
+Session Heartbeat on a messaging Gateway, Desktop, or interactive CLI.
+Ask the agent to check CI periodically in this conversation and clear the heartbeat
+when the job finishes.
 
-The plugin exposes Hermes' built-in [`/heartbeat`](https://hermes-agent.nousresearch.com/docs/user-guide/features/heartbeat/) functionality as the model-callable `session_heartbeat` tool. It does not create its own scheduler or cron jobs, or replace Hermes core code. If you only need manual control, the built-in `/heartbeat` command is enough.
+This exposes Hermes' existing [`/heartbeat`](https://hermes-agent.nousresearch.com/docs/user-guide/features/heartbeat/)
+as `session_heartbeat`. It adds no scheduler, cron job, core modification, or runtime
+monkeypatch. For manual control, the built-in `/heartbeat` is sufficient.
 
-## Supported environments
+## Compatibility and scope
 
-The plugin version is **0.1.0**. It was verified against Hermes `v0.21.5+4775.g3ebbaf5` (commit `3ebbaf524344f93943169e63854cb952541563f9`). Because it uses internal Heartbeat APIs, compatibility with other Hermes versions has not been verified.
+Version **0.2.0** has completed independent re-review and maintainer acceptance
+within the isolated verification scope. This does not establish live UI behavior,
+model execution, delivery, or adoption by a running host.
+Tested host: Hermes `v0.21.5+4775.g3ebbaf5`, commit
+`3ebbaf524344f93943169e63854cb952541563f9`. Other revisions need revalidation because
+this plugin depends on private host APIs.
 
-| Surface or configuration | Support |
+| Surface | Support |
 | --- | --- |
-| Current conversation in a persistent messaging Gateway | Supported when the conversation DB and routing information are in the same profile home and use the standard `$HERMES_HOME/sessions` directory |
-| Gateway serving multiple profiles (multiplex) | Supported only when the same-home requirement above is met. Routing information in other homes is not searched |
-| CLI / TUI / Desktop / API / ACP | Not supported. This differs from the supported surfaces of the built-in `/heartbeat` command itself |
-| cron / one-shot / subagents | Not supported |
-| Custom session storage locations or conversations spanning different homes | Not supported |
+| Resident messaging Gateway | Current canonical route and SessionDB must be in the same profile home, using the standard `$HERMES_HOME/sessions` scope |
+| Multiplex Gateway | Same-home routes only; no cross-home route search |
+| Native Desktop conversation | Live UI record, current agent, profile DB and native lease must agree; state is discovered by the native notification poller |
+| Interactive classic CLI | Invocation-time native REPL binding; controls update its cached manager, and `set` / `resume` arm its native watchdog |
+| CLI reopened with `--resume` | Saved state remains; **explicit `resume` or `set` is required** to arm the watchdog. `status` does not restart work |
+| API / ACP / cron / one-shot / delegated agents | Unsupported |
+| Other local surfaces / custom routing scopes | Not claimed supported |
 
-The isolated tests use Telegram-style conversations; they do not verify live message delivery on each messaging service. Tool visibility to the model in a new session, real model execution, and actual recurring wakeups and message delivery remain unverified. See [Verification and compatibility (Japanese)](docs/verification.md) for the verification scope.
+Native compression continuations are accepted from the **current owner's** live tip
+in the same DB, including the interval before UI/CLI re-anchoring. The plugin does
+not repoint the owner, CLI cache, or routing index itself. Native CLI settlement
+updates the owner ID but leaves its lease at the original ID: the adapter verifies
+that exact same-home registry lease (PID/live identity), its native live compression
+tip, and absence of a competing lease on that continuation. Branches, released or
+missing leases and foreign owners are refused. Registry reads do not prune or
+transfer leases; even an uncertain competing entry is conservatively rejected.
+Missing or stale ownership is rejected rather than guessed.
 
-## Installation
+Isolation tests exercise ordinary tool dispatch and native idle admission, not a
+rendered Desktop/CLI session, a full agent conversation, model inference, or external
+delivery. See [verification and limits](docs/verification.md).
 
-Use [Hermes plugin management](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins). The plugin itself is in **`plugin/`**, not the repository root. No additional Python packages or plugin-specific API key are required. At runtime, Hermes and the target Gateway's normal model and messaging configuration are required.
+**Native limits remain native limits.** An already queued CLI prompt is plain text,
+not a generation-fenced envelope; a concurrent switch/reset after admission is not
+atomically protected by this plugin. A deterministic two-idle-UI-poller harness
+also reproduces two admissions for one due tick, relevant to Desktop compute-host
+parent/child polling. Full compute-host launch and exactly-once ownership across
+processes are unverified. Do not rely on exactly-once recurring work. Fixing these
+host driver guarantees would require separately approved core work, not a plugin
+monkeypatch.
+
+## Installation and adoption
+
+The native directory package is **`plugin/`**, not the repository root. No additional
+Python package or plugin-specific API key is needed; Hermes still needs its normal
+model and surface configuration. The commands below install code from the GitHub
+default branch; check the manifest version or pin a published commit:
 
 ```sh
-# Install only; do not enable yet
 hermes plugins install 'https://github.com/teich0psia/hermes-session-heartbeat.git#plugin' --no-enable
-
-# Review the code before enabling. Do not grant permission to override built-in tools
 hermes plugins enable session-heartbeat --no-allow-tool-override
-
-# List user plugins
 hermes plugins list --user --json
 ```
 
-To pin a specific revision, pass `--ref` and the published commit's full **40-character SHA** to the install command. Branch names, tag names, and abbreviated SHAs are not accepted. For a named profile, use `hermes --profile <profile-name>` with each command, and make sure the installation profile matches the profile used by the Gateway.
+To pin a published version, add `--ref <full-40-character-commit-SHA>` to install.
+Branch names, tags and shortened SHAs are not accepted on the tested host. For named
+profiles, use `hermes --profile <name>` and align the plugin and conversation homes.
+This is not a `pip install` package.
 
-Enabling a plugin authorizes execution of trusted Python code. It may also request a plugin hot reload on a running Gateway. On the verified host, registration succeeded without a restart, but **Python tool availability was deferred until a new session**. Do not assume the tool has been added to an existing conversation, or reset a conversation without permission just to test it. Installing or enabling the plugin does not start recurring work.
+Enabling permits trusted Python code to run and can request supported Gateway / serve
+backend hot reload. A service restart is **not inherently required by this plugin**;
+that does not prove an existing host has adopted new code. Verify each hosting
+process's reload response. Python tools/schema are deferred to the **next session**,
+not inserted into existing chats. Start a new CLI process to adopt an updated CLI
+plugin; Desktop needs backend adoption as well as a new conversation. If supported
+activation fails, any app/backend restart needs separate approval. Do not reset an
+existing conversation merely to test availability. Installing/enabling alone starts
+no recurring job.
 
-This repository is a native directory plugin, not a package for `pip install`.
+## Tool usage
 
-## Using it in a conversation
-
-In a supported messaging conversation, ask the agent something like:
-
-> In this conversation, check every 10 minutes whether CI has finished. Report only meaningful changes, and clear the heartbeat when CI is complete.
-
-Both the tool name and the toolset name are `session_heartbeat`. The plugin does not add any custom slash commands. The following examples are tool-call arguments, not commands to run in a shell.
+Use only for recurring work the user actually authorized. Include an end condition.
+The tool and toolset are both named `session_heartbeat`; no new slash command is
+registered. These are tool argument examples, not shell commands:
 
 ```json
 {"action":"status"}
 ```
 
 ```json
-{"action":"set","interval":"10m","prompt":"Check whether CI has finished and report only meaningful changes. When CI is complete, call session_heartbeat with the clear action."}
+{"action":"set","interval":"10m","prompt":"Check CI and report meaningful changes only. When it finishes, call session_heartbeat clear."}
 ```
 
 ```json
@@ -71,44 +109,64 @@ Both the tool name and the toolset name are `session_heartbeat`. The plugin does
 
 | Action | Behavior |
 | --- | --- |
-| `status` | Inspect the current configuration. If none is set, `heartbeat` is `null` |
-| `set` | Requires both `interval` and a nonempty `prompt`. Replaces the single configuration for the conversation and resets the timer and execution count |
-| `pause` | Retain the instruction while stopping future recurring runs |
-| `resume` | Resume with the timer recalculated from the current time. Does not immediately execute an old schedule from before the pause |
-| `clear` | Remove the configuration. Also succeeds without making changes if none is set |
+| `status` | Read current state; `heartbeat: null` when unset. Does not arm CLI |
+| `set` | Require interval and nonempty prompt; replace the one schedule, reset timer and fire count |
+| `pause` | Keep the instruction, stop subsequent ticks |
+| `resume` | Re-anchor at now; no stale immediate tick. Arm interactive CLI |
+| `clear` | Remove the schedule; idempotent when unset |
 
-Specify intervals such as `90s`, `10m`, `2h`, or `1d`; the minimum is 60 seconds. Even if you only want to change the interval or the instruction, pass both to `set`. Calling `pause` or `resume` without a configured heartbeat returns a `no_heartbeat` error.
+Intervals include `90s`, `10m`, `2h`, `1d`; minimum 60 seconds. Even when changing
+only the interval or prompt, supply both to `set`. Unset `pause` / `resume` returns
+`no_heartbeat`. No session ID, profile, or path argument is accepted.
 
-## Recurring execution: important notes
-
-- Use this only for recurring work authorized by the user. Include a stopping condition in the instruction, and use `clear` when the heartbeat is no longer needed.
-- Recurring execution involves normal model calls and tool execution, so it may consume usage and incur costs. Do not include secrets in the prompt.
-- While the Gateway is running, Hermes' built-in monitoring process discovers saved configurations. It defers execution if the conversation is busy or user input is waiting. Execution at the exact specified interval is not guaranteed.
-- `pause` and `clear` do not cancel work that has already started. For manual control, you can also use the built-in `/heartbeat status`, `/heartbeat pause`, and `/heartbeat clear` commands.
-- Session IDs, profiles, and paths cannot be supplied as arguments. The plugin validates the current conversation context supplied by the host and rejects operations from other conversations or subagents.
-- Conversation ownership is checked before and after persistence, but this does not provide atomic protection against every concurrent operation through the built-in commands.
+The native owner must remain running. Busy work and pending human input defer the
+idle tick; exact wall-clock timing is not guaranteed. `pause` / `clear` do not cancel
+an already admitted/started turn. Recurring work can consume model/tool usage and
+incur costs. Do not put secrets into the prompt.
 
 ## Results and errors
 
-Successful results include `ok`, `action`, `changed`, `session_id`, `heartbeat`, `persisted`, `next_due_in_seconds`, `driver`, and `wakeup`. `persisted: true` means the saved state was verified by reading it back from the DB; it does not indicate a successful model response or message delivery.
+Success includes `ok`, `action`, `changed`, `session_id`, `heartbeat`, `persisted`,
+`next_due_in_seconds`, `driver`, and `wakeup`. `persisted: true` means exact DB
+readback, **not** successful model execution or delivery. Drivers are
+`native_gateway_recovery_poller`, `native_desktop_notification_poller`, or
+`native_cli_heartbeat_watchdog`. CLI `set` / `resume` also verifies native arming.
+Other operations do not claim to have armed a watchdog. Normal arming checks the
+native helper's return and start latch; it is not continuous thread supervision.
 
-Failures return `ok: false`, `error_code`, and `error`.
+A native `Thread.start()` failure can leave the host's start latch set. The plugin
+remembers an observed arm failure on that **live CLI owner**, across compression and
+plugin reload, without changing the native latch or replacing methods. Subsequent
+`set` / `resume` still save/read back state but return `driver_arm_failed`, not armed
+success. `status`, `pause` and `clear` remain available when ownership/storage are
+valid. The conservative failure marker lasts until that CLI owner is discarded;
+reopen CLI and explicitly resume/set to retry. A different CLI owner's watchdog
+cannot prove this one started. Automatic same-owner repair requires separate core
+approval.
 
-| Error code | What to check |
+Failure returns `ok: false`, `error_code`, and `error`:
+
+| Code | Meaning |
 | --- | --- |
-| `invalid_arguments` | Check the action name, interval, and required instruction. Do not pass an interval or instruction to actions other than `set` |
-| `unsupported_surface` | Check that this is a conversation in a supported persistent messaging Gateway |
-| `missing_session_context` / `profile_mismatch` | The host-supplied conversation context and profile do not match. Do not try to bypass this by entering an ID manually |
-| `not_current_route` | Check that the current conversation has a live route and uses the standard same-home configuration |
-| `no_heartbeat` | Configure a heartbeat before calling `pause` or `resume` |
-| `persistence_unverified` / `route_changed` | Persistence or conversation state may have encountered a conflict. Check with `status`; do not blindly repeat a state-changing operation |
-| `invalid_stored_state` / `storage_error` | Investigate the host's storage. Do not automatically overwrite corrupted data |
-| `unsupported_host` | Required internal Hermes APIs are unavailable. Check how the host differs from the verified version |
+| `invalid_arguments` | Invalid action, interval or prompt; extra fields are not accepted |
+| `unsupported_surface` | No proven supported local owner, or headless/delegated surface |
+| `missing_session_context` / `profile_mismatch` | Missing/mismatched dispatch identity or profile home; do not work around with IDs |
+| `not_current_route` | Messaging conversation lacks the required canonical live route |
+| `no_heartbeat` | Set a schedule before pause/resume |
+| `persistence_unverified` / `route_changed` | Save or ownership may have raced; recheck status, do not blindly retry a mutation |
+| `invalid_stored_state` / `storage_error` | Storage is invalid or inconsistent; never automatically overwrite corrupt state |
+| `driver_arm_failed` | CLI state saved/read back, but arming failed or previously failed on this owner. Includes `persisted: true`, `driver_armed: false`, action/changed/session/heartbeat/driver; no wakeup success claim |
+| `unsupported_host` | A required internal API or driver contract is unavailable |
 
-## Development and verification
+Controls serialize this plugin's calls, check ownership before/after saving, and
+verify exact persisted state. They do not add an atomic transaction across native
+slash commands, reset, scheduler admission and consumption.
 
-Source code, tests, and isolated verification scripts are included. See [Verification and compatibility (Japanese)](docs/verification.md) for environment requirements, execution instructions, and the distinction between mocked behavior and real host APIs.
+## Development
+
+See [verification](docs/verification.md) for prerequisites, reproducible isolated
+checks, real host versus harness boundaries, and archive contents.
 
 ## License
 
-[MIT License](LICENSE).
+[MIT](LICENSE).

@@ -17,8 +17,8 @@ python = Path(os.environ.get("HERMES_PYTHON", str(host / "venv/bin/python")))
 if not python.is_file():
     raise SystemExit("Hermes Python not found; set HERMES_PYTHON to the host interpreter.")
 env = {"HOME": str(Path.home()), "PATH": "/usr/local/bin:/usr/bin:/bin", "TMPDIR": str(scratch), "HERMES_SOURCE": str(host), "PYTHONDONTWRITEBYTECODE": "1"}
-evidence = repo / "evidence"
-evidence.mkdir(exist_ok=True)
+evidence = Path(os.environ.get("HERMES_EVIDENCE_DIR", str(repo / "evidence"))).resolve()
+evidence.mkdir(parents=True, exist_ok=True)
 
 
 def run(name, argv):
@@ -33,8 +33,11 @@ def run(name, argv):
 
 run("source-tests", [python, repo / "scripts/verify.py"])
 run("source-doctor", [python, repo / "scripts/verify.py", "doctor"])
-files = [("plugin.yaml", repo / "plugin/plugin.yaml"), ("__init__.py", repo / "plugin/__init__.py"), ("heartbeat_tool.py", repo / "plugin/heartbeat_tool.py"), ("README.md", repo / "README.md"), ("README.ja.md", repo / "README.ja.md"), ("LICENSE", repo / "LICENSE"), ("docs/verification.md", repo / "docs/verification.md")]
-archive = repo / "dist/session-heartbeat-0.1.0.tar.gz"
+files = [("plugin.yaml", repo / "plugin/plugin.yaml")] + [(p.name, p) for p in sorted((repo / "plugin").glob("*.py"))] + [("README.md", repo / "README.md"), ("README.ja.md", repo / "README.ja.md"), ("LICENSE", repo / "LICENSE"), ("docs/verification.md", repo / "docs/verification.md")]
+import re
+version = next(line.split(":", 1)[1].strip() for line in (repo / "plugin/plugin.yaml").read_text().splitlines() if line.startswith("version:"))
+assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version), "Unsafe manifest version"
+archive = repo / f"dist/session-heartbeat-{version}.tar.gz"
 archive.parent.mkdir(exist_ok=True)
 with archive.open("wb") as raw:
     with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz:

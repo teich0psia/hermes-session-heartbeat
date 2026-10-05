@@ -1,65 +1,163 @@
-# 検証と互換性
+# Verification and compatibility
 
-## 確認済みの範囲
+## Verified boundaries
 
-検証対象の Hermes は `v0.21.5+4775.g3ebbaf5`、コミット `3ebbaf524344f93943169e63854cb952541563f9` です。既存の開発・独立レビュー・導入時の記録では、隔離テスト **30 件成功**、Plugin Doctor **1 tool / 0 hooks / 終了コード 0** を確認しています。導入したコードと受入済みソースの一致も確認しています。
+Target host: Hermes `v0.21.5+4775.g3ebbaf5`, commit
+`3ebbaf524344f93943169e63854cb952541563f9`. Version 0.2.0 completed independent
+re-review and maintainer acceptance within the isolated scope. The accepted
+implementation and repository tests are retained byte-for-byte in this distribution.
+Writer source/archive suites each passed 75
+cases; independent focused runs are separate evidence: initial source 31 passed
+and archive 7 passed, each with one additional fixture failure before plugin
+dispatch. After correcting only that scratch fixture, supplemental source 8 and
+archive 5 cases passed. The already-green cases were not rerun. This acceptance
+does not establish live UI, model execution, delivery or adoption.
 
-テストはリポジトリの `tests/test_heartbeat.py` にあります。
+`tests/test_heartbeat.py` retains the 30 existing Messaging cases.
+`tests/test_local_surfaces.py` adds native local-surface verification:
 
-- 実 PluginManager による発見・登録と、registry 経由の全操作。
-- 実 SessionDB と HeartbeatManager による保存・読み戻し。
-- 設定がない状態からの標準 Gateway 監視処理による復元、処理中・入力待ちでの延期、待機時の起動受付。
-- 新規・キャッシュ済みターンでの実 Gateway コンテキスト設定、executor、通常のツール dispatch。
-- 標準の圧縮用ロック・子セッション作成・Heartbeat 移行・ルート切替。ルート切替前の子セッションで解除しても、切替後に設定が復活しないこと。
-- 不正な引数、保存データの破損、読み書き失敗、別ホーム・別会話・サブエージェント・停止中ルートの拒否と、拒否時の無関係データ不変。
+- Host PluginManager discovery/registration, SessionDB, HeartbeatManager and exact
+  readback. Source and extracted archive run the same suite and Plugin Doctor.
+- Fresh/cached Gateway binder, native context executor, sequential executor,
+  `model_tools`, registry dispatch; cached empty context ID remains supported,
+  nonempty identity disagreements remain rejected.
+- Desktop's **unmodified native init/binder/launch-home functions** and live registry lookup,
+  CLI's **unmodified native REPL attach function** and invocation-time `_cli_ref`.
+  All five controls use ordinary executor/registry dispatch, no injected parent agent.
+- Native CLI cached manager identity, unarmed `set`/`resume` starting the actual
+  watchdog, busy and queued-human deferral, FIFO loop consumption and self-clear.
+  Read-only status after a simulated reopen does not arm the watchdog.
+- Native Desktop notification scoped loop and heartbeat tick reading fresh DB state,
+  idle turn claim, submit entry, self-clear, and canonical Gateway viewer skip.
+- Real native compression locking/publication/migration; child `clear` and `set`
+  before local owner re-anchor, preservation after re-anchor and no revival from
+  repeated migration. Owner, cache and routes are not prematurely changed by plugin.
+- Refusal of ended/reset rows, switched or closed local owners, different DB/home,
+  released leases, delegated children, explicit branches, one-shot with a CLI ref,
+  missing native host/ref, and stale UI record/agent. Protected state/routes unchanged.
+- Compute-host native existing-record reconciliation and native borrowed lease
+  adoption allow child control without treating it as delegated execution.
 
-時計・監視周期・メッセージングアダプター・処理中判定はテスト用に模擬しています。エージェントも必要な属性だけを持つテスト用オブジェクトです。実モデル呼び出し、完全な `run_conversation`、圧縮モデル、Telegram / Discord の実通信は実行していません。
+`tests/test_cli_review_regressions.py` covers the independent-review corrections:
 
-過去の導入では、標準 enable 操作のホットリロード応答で Gateway のプラグイン登録と再起動不要を確認しました。Python ツールは新規セッションまで保留されました。**新規セッションでのモデル向けツール表示、実モデル実行、実際の定期起動とメッセージ配信は未検証**です。隔離テスト成功を本番の一連の動作成功とは扱いません。
+- Unmodified native `_chat_settle_turn` / `_transfer_session_yolo`, with no artificial
+  CLI lease transfer. Two compressions, five ordinary executor controls after each
+  settlement, original lease unchanged, native cached watchdog reading child state.
+- Original same-home lease registry proof, PID/live identity and competing child
+  owner refusal; released/missing/corrupt/foreign-home leases, invalid owner reference,
+  agent DB mismatch and branches cannot write protected state or routing.
+- Lower-layer `Thread.start` failure with native start helper retained; persisted
+  state is distinguished from failed arming, and retries after compression/native
+  scratch plugin reload stay fail-closed. Status/pause/clear remain available.
+- A second real native watchdog cannot authorize the failed owner. A new CLI owner
+  arms normally and idempotently. Failed persistence is not reported as arm failure.
 
-## 内部 API への依存
+Agent, CLI and UI records are **shells**. Desktop server entry-point functions are
+compiled unmodified from their AST; the server facade contains only native registry
+state, not a running backend. Split UI functions are rebound with the host's
+`method_ctx.rebind`. Clock/cadence, retirement admission scope, unrelated notification
+sinks, browser identity helper, prompt-submit/model/transport and per-input CLI
+turn dispatch are harnessed. The CLI FIFO loop itself is native. CLI post-turn
+settlement executes the unmodified native function and leaves its original lease
+untouched; Desktop re-anchor assignment remains simulated with native lease transfer.
+Failed-start latch reset appears only in scratch fixture teardown (no thread exists
+to run native exit cleanup), never in plugin code. Full turn/compression execution
+is not claimed. Tests never import full `cli`,
+`run_agent`, or `tui_gateway.server` entry points.
 
-登録には公開の `ctx.register_tool` を使いますが、操作には以下の Hermes 内部 API が必要です。
+## Known limits, not success claims
 
-- `hermes_cli.heartbeat` の `HeartbeatManager`、`HeartbeatState`、`parse_interval`。
-- `hermes_state_registry` と SessionDB の metadata、ルーティング情報、圧縮先取得。
-- `gateway.session_context`、Gateway の platform 定義、delegation-context 判定。
+- No rendered Desktop app, real interactive terminal session, full `run_conversation`,
+  compression model, paid inference, or external message delivery was exercised.
+- The isolated verification did not exercise production install, enable, hot reload,
+  conversation reset/switch or heartbeat mutation. Earlier Messaging deployment
+  evidence does not verify adoption of the new code. Tools/schema remain next-session
+  deferred; verify adoption separately for each hosting process.
+- CLI `--resume` alone does not arm the existing native watchdog. Explicit tool or
+  built-in `/heartbeat resume` / `set` is required; status is intentionally read-only.
+- Native queued CLI wakes are plain text. This plugin does not add generation fencing
+  at consumption, and cannot promise atomic exclusion of a concurrent reset/switch
+  after admission. Already queued/started work can survive a subsequent clear.
+- **Two-idle-poller race reproduced**: synchronized real DB loads on two native UI
+  tick functions, with separate parent/child-like locks, admit two submit entries
+  while persisted `fire_count` is one. The test deliberately records this inherited
+  limit, not exactly-once success. Compute-host full child startup and live lifecycle
+  are unverified; the probe does not establish that every live configuration races.
+  A robust cross-process driver ownership / atomic tick claim fix belongs in the
+  host and needs separate approval. No core change or production monkeypatch is made.
+- Concurrent native slash/reset operations are not made transactional by the plugin's
+  lock. Ownership rechecks and readback detect some conflicts, not every race window.
 
-これらの内部モジュールや保存 API は、一般プラグイン向けの安定した公開契約ではありません。ホストを更新するときは、対応するソースで再検証してください。標準 `$HERMES_HOME/sessions` 以外のルーティング保存先を探索する fallback は設けていません。
+## Private host contracts
 
-## 隔離検証の実行方法
+Registration uses public `ctx.register_tool`. Controls additionally depend on:
 
-Hermes のソース checkout と、その環境にインストール済みの依存パッケージ・`pytest` が必要です。`scripts/check.py` 自体は Python 標準ライブラリだけで起動します。プラグイン専用の外部 Python 依存はありません。スクリプトはパッケージの追加インストールを行いません。
+- `hermes_cli.heartbeat`: native manager/state/interval parser.
+- `hermes_state_registry`, SessionDB metadata, routing and compression-tip APIs.
+- `gateway.session_context`, platform definitions, native delegation predicate.
+- CLI `ctx._manager._cli_ref`, manager home, CLI/agent DB/current agent/interactive state,
+  native active-session lease, `_get_heartbeat_manager`, `_start_heartbeat_watchdog`.
+  Original CLI lease proof reads native `active_sessions._read_entries(strict=True)`
+  under its pinned `_FileLock`; it performs no prune, transfer or registry rewrite.
+  Observed arm failure is a plugin-only `_session_heartbeat_arm_failed` boolean on
+  the CLI owner (not on a per-session adapter/handler). It survives compression and
+  plugin reload without replacing any host method or modifying the host start latch.
+- Already-loaded Desktop `tui_gateway.server` live `_sessions` and lock, own profile
+  DB/current agent/live lease and notification stop token; a native `profile_home: null`
+  record uses the server's `_launch_home()` (never the active thread's arbitrary home).
 
-リポジトリのルートで実行します。
+`plugin/host_surfaces.py` is the small private adapter. It never imports the server
+for tool use, replaces a callable, injects a message, installs a timer, or repoints
+native state. Missing ownership fails closed. Live current-owner-to-compression-tip
+proof is same-DB only, not arbitrary ancestry or branch authorization. Native
+borrowed compute leases are accepted, but do not bypass the delegation predicate.
+These are not stable public extension APIs; revalidate on each host update.
+
+## Running the checks
+
+Prerequisites: Hermes source checkout, an interpreter with host dependencies and
+`pytest` already installed. No package installation is performed. The plugin has no
+additional Python dependency. `check.py` itself uses the standard library.
 
 ```sh
-# Hermes が標準の場所にある場合
 HERMES_SOURCE="$HOME/.hermes/hermes-agent" python3 scripts/check.py
 ```
 
-checkout が別の場所にある場合は `HERMES_SOURCE` を変更します。ホストの Python は既定で `$HERMES_SOURCE/venv/bin/python` を使います。managed runtime などで Python が別の場所にある場合は、実際にホスト依存を持つインタープリターの絶対パスを `HERMES_PYTHON` に指定してください。checkout の venv があれば、その site-packages も検証プロセスで追加します。ほかのインストール構成での実行は未確認です。
+Set `HERMES_SOURCE` for a different checkout, and `HERMES_PYTHON` to the absolute
+host interpreter path if necessary. Default interpreter:
+`$HERMES_SOURCE/venv/bin/python`. Checkout `venv/lib/python*/site-packages` is pinned
+in-process when available; other layouts are unverified.
 
-一時ファイルは `TMPDIR`、未指定なら `$HOME/.hermes/cache/scratch` に置きます。検証プロセスには最小限の環境変数だけを渡し、継承した認証情報や会話設定を使いません。Hermes の import 前に scratch の `HOME` / `HERMES_HOME` を設定し、lazy install を無効化し、live agent の import を拒否します。bootstrap の未使用ネットワーク関数は、呼ぶと失敗する代替関数に限定しています。
+Scratch files use `TMPDIR`, defaulting to `$HOME/.hermes/cache/scratch`. Child
+processes receive a minimal credential-free environment. Before host imports,
+verification redirects HOME/HERMES_HOME, disables lazy installation and project/
+bundled plugin discovery, prohibits network connections and full entry-point
+imports, and supplies only an unused rejecting bootstrap network export.
+The guard is read back after tests. All timers and threads used by the harness
+are stopped; DBs/config/plugin copies are temporary. No service lifecycle action.
 
-`check.py` は次を実行・生成します。
+`check.py` runs source tests/Doctor, builds a deterministic versioned archive from
+manifest + **all plugin Python modules**, compares every extracted byte, then runs
+artifact tests/Doctor. It records real output and host Git revision/worktree state
+under ignored `evidence/` (override with `HERMES_EVIDENCE_DIR` to retain earlier
+evidence). Logs can contain private local paths; sanitize before
+sharing. Test descriptions containing `PASS` for a native limit mean the limitation
+was reproduced, not fixed. Use the actual pytest summary to assess test completion.
 
-1. ソースのテストと、scratch に隔離した Plugin Doctor。
-2. `dist/session-heartbeat-0.1.0.tar.gz` の生成。
-3. 展開した配布物と元ファイルの byte 一致確認、配布物の同じテストと Doctor。
-4. `evidence/` への実出力・ビルドハッシュ・ホスト Git リビジョンと worktree 状態の記録。
+## Archive
 
-生成したログにはローカルパスやホスト状態が含まれるため、`evidence/` と `dist/` は Git ignore しています。公開 Issue に貼る場合も秘密値・会話 ID・個人情報を除去してください。テスト中の DB・設定・プラグインコピーは scratch に作り、終了時に削除します。導入、有効化、ホットリロード、サービス操作、本番 DB の操作は行いません。
-
-## 配布物
-
-GitHub からの標準導入は `plugin/` の native directory package を使います。生成する tar は別の検証用配布物で、次を `session-heartbeat/` 以下に含みます。
+`dist/session-heartbeat-0.2.0.tar.gz` contains eight files under `session-heartbeat/`:
 
 - `plugin.yaml`
 - `__init__.py`
 - `heartbeat_tool.py`
+- `host_surfaces.py`
 - `README.md`
+- `README.ja.md` (Japanese user guide)
 - `LICENSE`
 - `docs/verification.md`
 
-tar 内の README はリポジトリへの案内も含みます。開発用のテスト・検証スクリプトは tar ではなく、リポジトリから取得してください。
+Development tests/runners come from the repository, not the tar. README relative
+links resolve inside the archive. The archive is a separately verified distribution
+artifact. Independent re-review and maintainer acceptance cover the isolated
+scope only; they do not verify production installation or running-host adoption.
