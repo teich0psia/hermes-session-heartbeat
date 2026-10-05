@@ -8,7 +8,7 @@ Hermes 標準の [`/heartbeat`](https://hermes-agent.nousresearch.com/docs/user-
 
 ## 対応環境
 
-バージョンは **0.2.0**。隔離検証の範囲で独立再レビューと保守担当者の受入を完了しています。これは実 UI、モデル実行、配信、稼働中ホストでの採用を確認したという意味ではありません。検証した Hermes は `v0.21.5+4775.g3ebbaf5`（コミット `3ebbaf524344f93943169e63854cb952541563f9`）です。Heartbeat の内部 API を利用するため、ほかの Hermes バージョンでの互換性は未確認です。
+バージョンは **0.2.0**。隔離検証の範囲で独立再レビューと保守担当者の受入を完了しています。これは実 UI、モデル実行、配信、稼働中ホストでの採用を確認したという意味ではありません。検証した Hermes は `v0.21.5+4775.g3ebbaf5`（コミット `3ebbaf524344f93943169e63854cb952541563f9`）です。ホスト（Hermes）の非公開 API を利用するため、ほかの Hermes バージョンでの互換性は未確認です。
 
 | 利用場所・構成 | 対応 |
 | --- | --- |
@@ -23,7 +23,7 @@ Hermes 標準の [`/heartbeat`](https://hermes-agent.nousresearch.com/docs/user-
 
 隔離テストでは通常のツール dispatch と native driver の待機中の実行受付を確認しています。描画された Desktop、実対話端末、会話全体の実行、圧縮用モデル、モデル向けツール表示、実推論・外部配信は未検証です。検証範囲は [検証と互換性（英語）](docs/verification.md) に記載しています。
 
-同一 DB の現在の所有者から続く native 圧縮先を検証し、UI / CLI の再接続前も操作を許可します。CLI の圧縮後に元の lease が残る場合は、同一ホームの元 lease、PID、live identity、現在の圧縮先、競合する所有者の不在を確認します。分岐・解放済み lease・別ホームの所有者は拒否し、プラグイン自身は所有者・キャッシュ・ルーティングを付け替えません。
+同一 DB の現在の所有者から続く native 圧縮先（live tip）を検証し、UI / CLI の再接続前も含めて操作を許可します。プラグイン自身は所有者、CLI キャッシュ、ルーティングインデックスの付け替えを行いません。Native CLI settlement は owner ID を更新しますが、lease は元の ID のまま残します。アダプターは、同一ホームの正確なレジストリ lease（PID/live identity）、native の live 圧縮先、およびその継続先に対する競合 lease の不在を検証します。分岐、解放済みまたは欠落した lease、別ホームの所有者は拒否します。レジストリ読み取り時に lease の破棄や譲渡は行わず、競合するエントリが不確実な場合でも保守的に拒否します。所有関係の欠如や陳腐化は推測せず拒否します。
 
 ## インストール
 
@@ -91,14 +91,14 @@ hermes plugins list --user --json
 - 会話を所有するプロセスが動作している必要があります。Gateway / Desktop の標準 poller、または CLI の標準 watchdog が定期実行を扱います。会話が処理中、またはユーザー入力が待機中なら実行を延期します。指定間隔ちょうどの実行を保証するものではありません。
 - `pause` / `clear` は、すでに開始された処理をキャンセルしません。手動操作には標準の `/heartbeat status`、`/heartbeat pause`、`/heartbeat clear` も利用できます。
 - セッション ID・プロファイル・パスは引数に指定できません。ホストが渡す現在の会話を検証し、別会話やサブエージェントからの操作を拒否します。
-- 保存前と保存後に会話の所有関係を確認しますが、標準コマンドとの並行操作すべてを原子的に保護するものではありません。CLI の受付済み待機入力は文字列であり、その後の switch / reset と消費処理を原子的に保護しません。
-- Desktop の親 / compute-child に相当する二つの idle UI poller が同期して DB を読む隔離テストでは、一回の予定に二回の実行受付が生じる native 制約を再現しました。実際の child 起動や発生頻度は未検証です。プロセスをまたぐ exactly-once は保証せず、修正には別途承認を受けた本体変更が必要です。
+- 保存前と保存後に会話の所有関係を確認し、正確に永続化された状態を検証しますが、標準コマンド、リセット、スケジューラーの受付および消費をまたぐ並行操作を原子的なトランザクションとして保護するものではありません。受付済みの待機中 CLI プロンプトは単なる平文であり、世代境界で保護された envelope ではありません。受付後の並行 switch / reset は本プラグインによって原子的に保護されません。
+- Desktop の親 / compute-child のポーリングに相当する二つの idle UI poller が同期して DB を読むハーネス環境では、1 回の予定到来に対して 2 回の実行受付が生じる native 制約を再現しました。完全な compute-host の起動やプロセス間での exactly-once な所有権は未検証です。定期作業が exactly-once で実行されることに依存しないでください。こうしたホストドライバーの保証を修正するには、プラグインによる monkeypatch ではなく、別途承認を受けた Hermes 本体の改修が必要です。
 
 ## 結果とエラー
 
 成功結果には `ok`、`action`、`changed`、`session_id`、`heartbeat`、`persisted`、`next_due_in_seconds`、`driver`、`wakeup` が含まれます。`persisted: true` は DB の読み戻しで保存状態を確認したという意味であり、モデル応答やメッセージ配信の成功を示しません。
 
-CLI の `set` / `resume` は標準 watchdog の起動も確認しますが、継続的なスレッド監視ではありません。`Thread.start()` の失敗でホストの起動済みフラグが残った場合、同じ CLI 所有者での失敗を圧縮・プラグイン再読込み後も保持します。以後の `set` / `resume` は保存と読み戻しを行っても `driver_arm_failed` を返します。`status` / `pause` / `clear` は所有関係と保存領域が正常なら利用できます。CLI を開き直し、明示的に `resume` / `set` してください。プラグインはホストの起動フラグやメソッドを修復しません。
+CLI の `set` / `resume` は標準 watchdog の起動も確認しますが、継続的なスレッド監視ではありません。`Thread.start()` の失敗でホストの native な起動ラッチ（start latch）が残った場合、プラグインは native のラッチを変更したりメソッドを置換したりせず、その**実行中の CLI 所有者**で観測された起動失敗を、圧縮やプラグイン再読込みをまたいで記憶します。以後の `set` / `resume` は状態の保存と読み戻しを行いますが、起動成功ではなく `driver_arm_failed` を返します。所有関係と保存領域が正常であれば `status`、`pause`、`clear` は引き続き利用できます。この保守的な失敗記録はその CLI 所有者が破棄されるまで持続します。再試行するには CLI を開き直し、明示的に `resume` または `set` を実行してください。別の CLI 所有者の watchdog から対象の起動を証明することはできません。同一所有者での自動修復には別途 Hermes 本体の承認が必要です。プラグインはホストの起動ラッチやメソッドを修復・置換しません。
 
 失敗結果は `ok: false`、`error_code`、`error` を返します。
 
@@ -111,7 +111,7 @@ CLI の `set` / `resume` は標準 watchdog の起動も確認しますが、継
 | `no_heartbeat` | `pause` / `resume` の前に設定が必要 |
 | `persistence_unverified` / `route_changed` | 保存や会話の状態が競合した可能性がある。`status` で確認し、変更操作を無条件で繰り返さない |
 | `invalid_stored_state` / `storage_error` | ホストの保存領域を調査する。破損データを自動上書きしない |
-| `driver_arm_failed` | CLI の状態は保存・読み戻し済みだが、現在の所有者で watchdog の起動に失敗した。`persisted: true`、`driver_armed: false` と保存状態を返し、起動成功は主張しない |
+| `driver_arm_failed` | CLI の状態は保存・読み戻し済みだが、現在の所有者で watchdog の起動に失敗したか、以前の失敗が記録されている。`persisted: true`、`driver_armed: false` と操作内容・セッション・設定・driver を返し、起動成功は主張しない |
 | `unsupported_host` | 必要な Hermes 内部 API が利用できない。検証済みホストとの差を確認する |
 
 ## 開発・検証
