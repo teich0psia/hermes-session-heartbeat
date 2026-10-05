@@ -33,7 +33,7 @@ def run(name, argv):
 
 run("source-tests", [python, repo / "scripts/verify.py"])
 run("source-doctor", [python, repo / "scripts/verify.py", "doctor"])
-files = [("plugin.yaml", repo / "plugin/plugin.yaml"), ("__init__.py", repo / "plugin/__init__.py"), ("heartbeat_tool.py", repo / "plugin/heartbeat_tool.py"), ("README.md", repo / "README.md"), ("LICENSE", repo / "LICENSE"), ("docs/verification.md", repo / "docs/verification.md")]
+files = [("plugin.yaml", repo / "plugin/plugin.yaml"), ("__init__.py", repo / "plugin/__init__.py"), ("heartbeat_tool.py", repo / "plugin/heartbeat_tool.py"), ("README.md", repo / "README.md"), ("README.ja.md", repo / "README.ja.md"), ("LICENSE", repo / "LICENSE"), ("docs/verification.md", repo / "docs/verification.md")]
 archive = repo / "dist/session-heartbeat-0.1.0.tar.gz"
 archive.parent.mkdir(exist_ok=True)
 with archive.open("wb") as raw:
