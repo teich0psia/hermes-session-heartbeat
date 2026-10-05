@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+# Generated checks may contain local paths and host state; never publish raw logs.
+evidence/

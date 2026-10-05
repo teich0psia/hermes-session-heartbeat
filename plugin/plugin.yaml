@@ -1,0 +1,6 @@
+name: session-heartbeat
+version: 0.1.0
+description: Let the agent manage the current messaging conversation's native Session Heartbeat.
+provides_tools:
+  - session_heartbeat
+provides_hooks: []
