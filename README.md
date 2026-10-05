@@ -1,58 +1,60 @@
 # Hermes Session Heartbeat
 
-Hermes のメッセージング会話で、エージェントが現在の会話の Session Heartbeat を設定・確認・一時停止・再開・解除するためのプラグインです。たとえば「この会話で CI の完了を定期確認し、完了したら監視を解除して」と依頼できます。
+English | [日本語](README.ja.md)
 
-Hermes 標準の [`/heartbeat`](https://hermes-agent.nousresearch.com/docs/user-guide/features/heartbeat/) を、モデルから呼び出せる `session_heartbeat` ツールとして利用します。独自のスケジューラーや cron ジョブは作らず、Hermes 本体のコードも置き換えません。人が手動で操作するだけなら、標準の `/heartbeat` で足ります。
+A plugin that lets the agent set, inspect, pause, resume, or clear the Session Heartbeat for the current Hermes messaging conversation. For example, you can ask it to check periodically whether CI has finished and clear the heartbeat when it does.
 
-## 対応環境
+The plugin exposes Hermes' built-in [`/heartbeat`](https://hermes-agent.nousresearch.com/docs/user-guide/features/heartbeat/) functionality as the model-callable `session_heartbeat` tool. It does not create its own scheduler or cron jobs, or replace Hermes core code. If you only need manual control, the built-in `/heartbeat` command is enough.
 
-バージョンは **0.1.0**。検証した Hermes は `v0.21.5+4775.g3ebbaf5`（コミット `3ebbaf524344f93943169e63854cb952541563f9`）です。Heartbeat の内部 API を利用するため、ほかの Hermes バージョンでの互換性は未確認です。
+## Supported environments
 
-| 利用場所・構成 | 対応 |
+The plugin version is **0.1.0**. It was verified against Hermes `v0.21.5+4775.g3ebbaf5` (commit `3ebbaf524344f93943169e63854cb952541563f9`). Because it uses internal Heartbeat APIs, compatibility with other Hermes versions has not been verified.
+
+| Surface or configuration | Support |
 | --- | --- |
-| 常駐するメッセージング Gateway の現在の会話 | 会話 DB とルーティング情報が同じプロファイルホームにあり、標準の `$HERMES_HOME/sessions` を使う場合に対応 |
-| 複数プロファイルを扱う Gateway（multiplex） | 上記の同一ホーム条件を満たす場合のみ対応。別ホームのルーティング情報は探索しない |
-| CLI / TUI / Desktop / API / ACP | 非対応。標準の `/heartbeat` 自体の対応範囲とは異なる |
-| cron / one-shot / サブエージェント | 非対応 |
-| 独自のセッション保存先・別ホームをまたぐ会話 | 非対応 |
+| Current conversation in a persistent messaging Gateway | Supported when the conversation DB and routing information are in the same profile home and use the standard `$HERMES_HOME/sessions` directory |
+| Gateway serving multiple profiles (multiplex) | Supported only when the same-home requirement above is met. Routing information in other homes is not searched |
+| CLI / TUI / Desktop / API / ACP | Not supported. This differs from the supported surfaces of the built-in `/heartbeat` command itself |
+| cron / one-shot / subagents | Not supported |
+| Custom session storage locations or conversations spanning different homes | Not supported |
 
-隔離テストでは Telegram 形式の会話を使っています。各メッセージングサービスでの実送信を確認したものではありません。新規セッションでのモデル向けツール表示、実モデル実行、実際の定期起動・メッセージ配信は未検証です。検証範囲は [検証と互換性](docs/verification.md) に記載しています。
+The isolated tests use Telegram-style conversations; they do not verify live message delivery on each messaging service. Tool visibility to the model in a new session, real model execution, and actual recurring wakeups and message delivery remain unverified. See [Verification and compatibility (Japanese)](docs/verification.md) for the verification scope.
 
-## インストール
+## Installation
 
-[Hermes のプラグイン管理](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)を使います。プラグイン本体はリポジトリ直下ではなく **`plugin/`** にあります。追加の Python パッケージや、このプラグイン専用の API キーは不要です。実行時には Hermes と、対象 Gateway の通常のモデル・メッセージング設定が必要です。
+Use [Hermes plugin management](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins). The plugin itself is in **`plugin/`**, not the repository root. No additional Python packages or plugin-specific API key are required. At runtime, Hermes and the target Gateway's normal model and messaging configuration are required.
 
 ```sh
-# インストールのみ。有効化はまだ行わない
+# Install only; do not enable yet
 hermes plugins install 'https://github.com/teich0psia/hermes-session-heartbeat.git#plugin' --no-enable
 
-# 内容を確認してから有効化。組み込みツールの上書き権限は与えない
+# Review the code before enabling. Do not grant permission to override built-in tools
 hermes plugins enable session-heartbeat --no-allow-tool-override
 
-# ユーザープラグイン一覧を確認
+# List user plugins
 hermes plugins list --user --json
 ```
 
-特定の版に固定する場合は、install コマンドに `--ref` と公開コミットの完全な **40 桁 SHA** を指定します。ブランチ名・タグ名・短縮 SHA は指定できません。名前付きプロファイルに導入する場合は、各コマンドに `hermes --profile <プロファイル名>` を使い、導入先と Gateway の利用プロファイルを合わせてください。
+To pin a specific revision, pass `--ref` and the published commit's full **40-character SHA** to the install command. Branch names, tag names, and abbreviated SHAs are not accepted. For a named profile, use `hermes --profile <profile-name>` with each command, and make sure the installation profile matches the profile used by the Gateway.
 
-有効化は信頼した Python コードの実行を許可する操作です。また、稼働中の Gateway ではプラグインのホットリロードを要求することがあります。検証したホストでは再起動なしで登録できましたが、**Python ツールの利用は新規セッションまで保留**されました。既存会話にツールが追加されたと判断したり、動作確認のために会話を無断でリセットしたりしないでください。導入・有効化だけでは定期作業を開始しません。
+Enabling a plugin authorizes execution of trusted Python code. It may also request a plugin hot reload on a running Gateway. On the verified host, registration succeeded without a restart, but **Python tool availability was deferred until a new session**. Do not assume the tool has been added to an existing conversation, or reset a conversation without permission just to test it. Installing or enabling the plugin does not start recurring work.
 
-このリポジトリは native directory plugin であり、`pip install` 用のパッケージではありません。
+This repository is a native directory plugin, not a package for `pip install`.
 
-## 会話での使い方
+## Using it in a conversation
 
-対応するメッセージング会話で、エージェントに次のように依頼します。
+In a supported messaging conversation, ask the agent something like:
 
-> この会話で、10 分ごとに CI の完了を確認して。意味のある変化だけ報告し、完了したら heartbeat を解除して。
+> In this conversation, check every 10 minutes whether CI has finished. Report only meaningful changes, and clear the heartbeat when CI is complete.
 
-エージェントが呼び出すツール名・ツールセット名は、どちらも `session_heartbeat` です。このプラグイン独自のスラッシュコマンドは追加しません。次はツール呼び出しの引数例であり、シェルで実行するコマンドではありません。
+Both the tool name and the toolset name are `session_heartbeat`. The plugin does not add any custom slash commands. The following examples are tool-call arguments, not commands to run in a shell.
 
 ```json
 {"action":"status"}
 ```
 
 ```json
-{"action":"set","interval":"10m","prompt":"CI の完了を確認し、意味のある変化だけ報告する。完了したら session_heartbeat の clear を呼ぶ。"}
+{"action":"set","interval":"10m","prompt":"Check whether CI has finished and report only meaningful changes. When CI is complete, call session_heartbeat with the clear action."}
 ```
 
 ```json
@@ -67,46 +69,46 @@ hermes plugins list --user --json
 {"action":"clear"}
 ```
 
-| 操作 | 動作 |
+| Action | Behavior |
 | --- | --- |
-| `status` | 現在の設定を確認する。設定がなければ `heartbeat` は `null` |
-| `set` | `interval` と空でない `prompt` の両方が必須。会話ごとに一つの設定を置き換え、タイマーと実行回数をリセットする |
-| `pause` | 指示を保持して、次回以降の定期実行を停止する |
-| `resume` | タイマーを現在時刻から再計算して再開する。停止中の古い予定を即時実行しない |
-| `clear` | 設定を解除する。未設定でも成功し、変更は行わない |
+| `status` | Inspect the current configuration. If none is set, `heartbeat` is `null` |
+| `set` | Requires both `interval` and a nonempty `prompt`. Replaces the single configuration for the conversation and resets the timer and execution count |
+| `pause` | Retain the instruction while stopping future recurring runs |
+| `resume` | Resume with the timer recalculated from the current time. Does not immediately execute an old schedule from before the pause |
+| `clear` | Remove the configuration. Also succeeds without making changes if none is set |
 
-間隔は `90s`、`10m`、`2h`、`1d` などで指定し、最小は 60 秒です。間隔だけ、または指示だけを変更したい場合も、`set` に両方を指定します。未設定での `pause` / `resume` は `no_heartbeat` エラーになります。
+Specify intervals such as `90s`, `10m`, `2h`, or `1d`; the minimum is 60 seconds. Even if you only want to change the interval or the instruction, pass both to `set`. Calling `pause` or `resume` without a configured heartbeat returns a `no_heartbeat` error.
 
-## 定期実行の注意点
+## Recurring execution: important notes
 
-- ユーザーが許可した定期作業にだけ使います。指示には終了条件を含め、不要になったら `clear` で解除してください。
-- 定期実行は通常のモデル呼び出し・ツール実行を伴うため、利用量や費用が発生し得ます。プロンプトに秘密値を含めないでください。
-- Gateway が動作している間、Hermes 標準の監視処理が保存済み設定を検出します。会話が処理中、またはユーザー入力が待機中なら実行を延期します。指定間隔ちょうどの実行を保証するものではありません。
-- `pause` / `clear` は、すでに開始された処理をキャンセルしません。手動操作には標準の `/heartbeat status`、`/heartbeat pause`、`/heartbeat clear` も利用できます。
-- セッション ID・プロファイル・パスは引数に指定できません。ホストが渡す現在の会話を検証し、別会話やサブエージェントからの操作を拒否します。
-- 保存前と保存後に会話の所有関係を確認しますが、標準コマンドとの並行操作すべてを原子的に保護するものではありません。
+- Use this only for recurring work authorized by the user. Include a stopping condition in the instruction, and use `clear` when the heartbeat is no longer needed.
+- Recurring execution involves normal model calls and tool execution, so it may consume usage and incur costs. Do not include secrets in the prompt.
+- While the Gateway is running, Hermes' built-in monitoring process discovers saved configurations. It defers execution if the conversation is busy or user input is waiting. Execution at the exact specified interval is not guaranteed.
+- `pause` and `clear` do not cancel work that has already started. For manual control, you can also use the built-in `/heartbeat status`, `/heartbeat pause`, and `/heartbeat clear` commands.
+- Session IDs, profiles, and paths cannot be supplied as arguments. The plugin validates the current conversation context supplied by the host and rejects operations from other conversations or subagents.
+- Conversation ownership is checked before and after persistence, but this does not provide atomic protection against every concurrent operation through the built-in commands.
 
-## 結果とエラー
+## Results and errors
 
-成功結果には `ok`、`action`、`changed`、`session_id`、`heartbeat`、`persisted`、`next_due_in_seconds`、`driver`、`wakeup` が含まれます。`persisted: true` は DB の読み戻しで保存状態を確認したという意味であり、モデル応答やメッセージ配信の成功を示しません。
+Successful results include `ok`, `action`, `changed`, `session_id`, `heartbeat`, `persisted`, `next_due_in_seconds`, `driver`, and `wakeup`. `persisted: true` means the saved state was verified by reading it back from the DB; it does not indicate a successful model response or message delivery.
 
-失敗結果は `ok: false`、`error_code`、`error` を返します。
+Failures return `ok: false`, `error_code`, and `error`.
 
-| エラーコード | 確認すること |
+| Error code | What to check |
 | --- | --- |
-| `invalid_arguments` | 操作名、間隔、必須の指示を確認する。`set` 以外には間隔・指示を渡さない |
-| `unsupported_surface` | 対応する常駐メッセージング Gateway の会話か確認する |
-| `missing_session_context` / `profile_mismatch` | ホストが渡す会話情報とプロファイルが一致していない。ID を手入力して回避しない |
-| `not_current_route` | 現在の会話に有効なルートがあるか、標準の同一ホーム構成か確認する |
-| `no_heartbeat` | `pause` / `resume` の前に設定が必要 |
-| `persistence_unverified` / `route_changed` | 保存や会話の状態が競合した可能性がある。`status` で確認し、変更操作を無条件で繰り返さない |
-| `invalid_stored_state` / `storage_error` | ホストの保存領域を調査する。破損データを自動上書きしない |
-| `unsupported_host` | 必要な Hermes 内部 API が利用できない。検証済みホストとの差を確認する |
+| `invalid_arguments` | Check the action name, interval, and required instruction. Do not pass an interval or instruction to actions other than `set` |
+| `unsupported_surface` | Check that this is a conversation in a supported persistent messaging Gateway |
+| `missing_session_context` / `profile_mismatch` | The host-supplied conversation context and profile do not match. Do not try to bypass this by entering an ID manually |
+| `not_current_route` | Check that the current conversation has a live route and uses the standard same-home configuration |
+| `no_heartbeat` | Configure a heartbeat before calling `pause` or `resume` |
+| `persistence_unverified` / `route_changed` | Persistence or conversation state may have encountered a conflict. Check with `status`; do not blindly repeat a state-changing operation |
+| `invalid_stored_state` / `storage_error` | Investigate the host's storage. Do not automatically overwrite corrupted data |
+| `unsupported_host` | Required internal Hermes APIs are unavailable. Check how the host differs from the verified version |
 
-## 開発・検証
+## Development and verification
 
-ソース・テスト・隔離検証スクリプトを同梱しています。環境要件と実行方法、模擬処理と実ホスト API の区別は [検証と互換性](docs/verification.md) を参照してください。
+Source code, tests, and isolated verification scripts are included. See [Verification and compatibility (Japanese)](docs/verification.md) for environment requirements, execution instructions, and the distinction between mocked behavior and real host APIs.
 
-## ライセンス
+## License
 
-[MIT License](LICENSE)。
+[MIT License](LICENSE).
